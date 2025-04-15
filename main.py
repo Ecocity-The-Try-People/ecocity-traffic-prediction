@@ -23,6 +23,7 @@ for doc in docs:
     data = doc.to_dict()
     img_url = data.get("traffic_img_url")
     location = data.get('location')
+    traffic_img_id = doc.id
     if not img_url:
         continue
 
@@ -59,7 +60,8 @@ for doc in docs:
             "congestionLevel": congestion,
             "createdDateTime": datetime.datetime.now().isoformat(),
             "location": location,
-            "suggestion": suggestion
+            "suggestion": suggestion,
+            "trafficImageId": traffic_img_id
         }
         db.collection("vehicle_data").add(doc)
         print("✅ YOLOv8 prediction uploaded to Firebase.")
