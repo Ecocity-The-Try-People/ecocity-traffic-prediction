@@ -24,6 +24,11 @@ for doc in docs:
     img_url = data.get("traffic_img_url")
     location = data.get('location')
     traffic_img_id = doc.id
+
+    # Check if already processed
+    if data.get("vehicleData_DocId"):
+        print(f"🚫 Already processed: {traffic_img_id}")
+        continue
     if not img_url:
         continue
 
