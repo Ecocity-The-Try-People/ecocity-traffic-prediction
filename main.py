@@ -55,15 +55,21 @@ for doc in docs:
         # image_url = blob.public_url
 
         # === Store Prediction in Firestore ===
-        doc = {
+        doc_data = {
             "vehicleNum": vehicle_count,
             "congestionLevel": congestion,
             "createdDateTime": datetime.datetime.now().isoformat(),
             "location": location,
-            "suggestion": suggestion,
-            "trafficImageId": traffic_img_id
+            "suggestion": suggestion
         }
-        db.collection("vehicle_data").add(doc)
+        vehicle_data_ref = db.collection("vehicle_data").add(doc_data)
+        vehicle_data_doc_id = vehicle_data_ref[1].id
+
+        # === Update traffic_image with vehicle_data docID ===
+        db.collection("traffic_image").document(traffic_img_id).update({
+            "vehicleData_DocId": vehicle_data_doc_id
+        })
+
         print("✅ YOLOv8 prediction uploaded to Firebase.")
         print(f"Vehicle Num:  {vehicle_count} \n Congestion Level: {congestion}")
     except Exception as e:
