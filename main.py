@@ -39,10 +39,13 @@ for doc in docs:
         # === Define Congestion Level ===
         if vehicle_count < 10:
             congestion = "Low"
+            suggestion = "Continue on your current lane"
         elif vehicle_count < 25:
             congestion = "Medium"
+            suggestion = "Will be congested soon, try to switch lane or route"
         else:
             congestion = "High"
+            suggestion = "Please reroute, road is congested"
 
         # === Upload Image to Firebase Storage ===
         # filename = f"traffic_{datetime.datetime.now().isoformat()}.jpg"
@@ -56,7 +59,7 @@ for doc in docs:
             "congestionLevel": congestion,
             "createdDateTime": datetime.datetime.now().isoformat(),
             "location": location,
-            "imageUrl": img_url
+            "suggestion": suggestion
         }
         db.collection("vehicle_data").add(doc)
         print("✅ YOLOv8 prediction uploaded to Firebase.")
