@@ -5,3 +5,5 @@ firebase-admin~=6.7.0
 opencv-python
 ultralytics~=8.3.108
 requests~=2.32.3
+dotenv~=0.9.9
+python-dotenv~=1.1.0

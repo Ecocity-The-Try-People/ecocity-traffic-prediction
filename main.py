@@ -1,3 +1,4 @@
+import os
 from io import BytesIO
 import requests
 from ultralytics import YOLO
@@ -5,16 +6,56 @@ from PIL import Image
 import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
+from dotenv import load_dotenv
+
+load_dotenv()
+cred_path = os.getenv("FIREBASE_CREDENTIAL_PATH")
+db_url = os.getenv("FIREBASE_DATABASE_URL")
 
 # === Firebase Init ===
-cred = credentials.Certificate("serviceAccountKey.json")
+cred = credentials.Certificate(cred_path)
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://smartcity-8ef94-default-rtdb.asia-southeast1.firebasedatabase.app'
+    'databaseURL': db_url
 })
 db = firestore.client()
 
 # === Load YOLOv8 Model ===
 model = YOLO('yolov8n.pt')
+
+
+# === Function to Get Location Name from OpenStreetMap (Nominatim) ===
+def get_location_name(lat, lon):
+    try:
+        if lat is None or lon is None:
+            print("❌ Invalid latitude or longitude.")
+            return "Unknown Location"
+
+        print(f"📍 Resolving location name for coordinates: lat={lat}, lon={lon}")
+
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
+        headers = {
+            "User-Agent": "EcoCitySmartManagement/1.0"
+        }
+
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            print(f"❌ HTTP {response.status_code} error from Nominatim.")
+            return "Unknown Location"
+
+        data = response.json()
+        address = data.get('address', {})
+        road = address.get('road')
+        suburb = address.get('suburb')
+        city = address.get('city') or address.get('town') or address.get('village')
+
+        # You can customize this based on what you want to display
+        location_name = road or suburb or city or "Unnamed Location"
+        return location_name
+
+    except Exception as e:
+        print(f"⚠️ Error fetching location name: {e}")
+        return "Unknown Location"
+
 
 # === Load and Predict Image From Firebase ===
 docs = db.collection("traffic_image").get()
@@ -22,7 +63,7 @@ img_urls = []
 for doc in docs:
     data = doc.to_dict()
     img_url = data.get("traffic_img_url")
-    location = data.get('location')
+    location_id = data.get('location_id')
     traffic_img_id = doc.id
 
     # Check if already processed
@@ -40,7 +81,8 @@ for doc in docs:
 
         # === Filter Detected Vehicles ===
         vehicle_classes = ['car', 'truck', 'bus', 'motorcycle']  # Names used in YOLOv8
-        vehicle_count = sum(1 for c in results.names.values() if c in vehicle_classes for b in results.boxes.cls if results.names[int(b)] == c)
+        vehicle_count = sum(1 for c in results.names.values() if c in vehicle_classes for b in results.boxes.cls if
+                            results.names[int(b)] == c)
 
         # === Define Congestion Level ===
         if vehicle_count < 10:
@@ -53,18 +95,11 @@ for doc in docs:
             congestion = "High"
             suggestion = "Please reroute, road is congested"
 
-        # === Upload Image to Firebase Storage ===
-        # filename = f"traffic_{datetime.datetime.now().isoformat()}.jpg"
-        # blob = bucket.blob(f"traffic_images/{filename}")
-        # blob.upload_from_filename(img_path)
-        # image_url = blob.public_url
-
-        # === Store Prediction in Firestore ===
         doc_data = {
             "vehicleNum": vehicle_count,
             "congestionLevel": congestion,
             "createdDateTime": datetime.datetime.now().isoformat(),
-            "location": location,
+            "location_id": location_id,
             "suggestion": suggestion
         }
         vehicle_data_ref = db.collection("vehicle_data").add(doc_data)
@@ -74,6 +109,60 @@ for doc in docs:
         db.collection("traffic_image").document(traffic_img_id).update({
             "vehicleData_DocId": vehicle_data_doc_id
         })
+
+        # === Create or Update Location in 'locations' collection ===
+        location_ref = db.collection("locations").where("location_id", "==", location_id).get()
+        lat_lon = location_id.split("_")
+        lat = lat_lon[0]
+        lon = lat_lon[1]
+
+        if location_ref:
+            for loc_doc in location_ref:
+                loc_doc_ref = db.collection("locations").document(loc_doc.id)
+                loc_doc_ref.update({
+                    "lastUpdated": datetime.datetime.now().isoformat(),
+                    "latest_trafficImage_DocId": traffic_img_id,
+                    "latest_vehicleData_DocId": vehicle_data_doc_id,
+                })
+            print(f"🚗 Location {location_id} updated.")
+
+        else:
+            print(f"📍 Creating new location for location_id: {location_id}")
+
+            # Location does not exist, create new
+            lat, lon = location_id.split("_")
+            lat, lon = float(lat), float(lon)
+
+            print(f"🧪 Parsed lat/lon: lat={lat}, lon={lon}")
+
+            # Fetch the location name using Nominatim API
+            name = get_location_name(lat, lon)
+
+            lat_lon_doc_id = f"{lat}_{lon}"
+
+            new_location_data = {
+                "location_id": location_id,
+                "lastUpdated": datetime.datetime.now().isoformat(),
+                "lat": lat,
+                "lon": lon,
+                "name": name,
+                "latest_trafficImage_DocId": traffic_img_id,
+                "latest_vehicleData_DocId": vehicle_data_doc_id,
+            }
+            try:
+                db.collection("locations").document(lat_lon_doc_id).set(new_location_data)
+                print(f"✅ New location {lat_lon_doc_id} added with name: {name}")
+            except Exception as e:
+                print(f"❌ Failed to create location document: {e}")
+
+        # location_ref = db.collection("locations").where("location_id", "==", location_id).get()
+        # if location_ref:
+        #     for loc_doc in location_ref:
+        #         loc_doc_ref = db.collection("locations").document(loc_doc.id)
+        #         loc_doc_ref.update({
+        #             "vehicleData_DocId": vehicle_data_doc_id  # Link to vehicle data
+        #         })
+        #     print(f"📍 Location {location_id} updated with vehicle data Doc ID.")
 
         print("✅ YOLOv8 prediction uploaded to Firebase.")
         print(f"Vehicle Num:  {vehicle_count} \n Congestion Level: {congestion}")
