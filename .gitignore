@@ -2,8 +2,11 @@
 .venv/
 .env
 
+# Testing images
+images/
+
 # Service account JSON file
 serviceAccountKey.json
 
-#Automated script
+# Automated script
 automated_script.py
