@@ -2,9 +2,6 @@
 .venv/
 .env
 
-# Testing images
-images/
-
 # Service account JSON file
 serviceAccountKey.json
 
